@@ -31,6 +31,9 @@ branch during those disruptions.
 > automatically detect disruptions from the MBTA’s published historical
 > trip data and dynamically generate the visualizations below.
 
+<details class="code-fold">
+<summary>Show shutdown input code</summary>
+
 ``` r
 # note: using POSIXct because Date objects gave weird behavior with vistime
 #       when shutdown was just one day long
@@ -126,6 +129,8 @@ add_shutdown("GC2","2022-06-23", "2022-06-26", "partial")
 ## https://www.nbcboston.com/news/local/mbta-green-line-service-between-north-station-and-government-center-resumes/2690031/
 add_shutdown("Government Center Garage collapse","2022-03-26", "2022-04-08", "partial")
 ```
+
+</details>
 
 # Shutdowns Visualizations
 

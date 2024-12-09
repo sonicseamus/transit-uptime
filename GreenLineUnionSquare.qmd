@@ -55,6 +55,8 @@ the visualizations below.
 
 ```{r}
 #| label: record-shutdowns
+#| code-fold: true
+#| code-summary: "Show shutdown input code"
 
 # note: using POSIXct because Date objects gave weird behavior with vistime
 #       when shutdown was just one day long
