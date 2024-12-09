@@ -134,42 +134,7 @@ add_shutdown("Government Center Garage collapse","2022-03-26", "2022-04-08", "pa
 
 # Shutdowns Visualizations
 
-``` r
-df %>% group_by(disruption = !is.na(status)) %>%
-  #mutate(pct = scales::percent(agg$n / sum(agg$n), accuracy = .1, trim = FALSE))
-  ggplot(aes(x = disruption, fill = status)) +
-  geom_bar() +
-  geom_text(
-    stat = "count",
-    aes(label = after_stat(count)),
-    position = position_stack(vjust=0.5), # Adjust the width as needed
-    #vjust = -0.5, # Adjust vertical position if necessary
-    # nudge_y = 10
-  ) +
-  labs(
-    title = "Green Line Union Square Branch Disruptions since Opening",
-    y = "Days", x = "Was there a disruption on the branch?",
-    fill = "Disruption Type") +
-  theme_minimal()
-
-# ggsave("img/GLUSQ_bar_chart.png")
-```
-
 ![](GreenLineUnionSquare_files/figure-commonmark/fig-uptime-bar-chart-1.png)
-
-``` r
-shutdown_data %>% 
-  mutate_at(vars(startDate,endDate), ~as.character(.)) %>%
-  gg_vistime(col.event="name",col.start="startDate",col.end="endDate",col.group="status",
-             show_labels = FALSE) +
-  theme_bw() +
-  scale_x_datetime(breaks = breaks_width("3 months"), labels = date_format("%b %Y")) +
-  labs(
-    title = "Green Line Union Square Branch Shutdowns since Opening",
-    y = "Disruption Type")
-
-# ggsave("img/GLUSQ_timeline.png")
-```
 
 ![](GreenLineUnionSquare_files/figure-commonmark/fig-shutdown-timeline-1.png)
 

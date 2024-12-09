@@ -158,6 +158,7 @@ add_shutdown("Government Center Garage collapse","2022-03-26", "2022-04-08", "pa
 ```{r}
 #| label: fig-uptime-bar-chart
 #| fig-cap: "Days with Green Line Union Square Branch Disruptions since Opening"
+#| echo: false
 
 df %>% group_by(disruption = !is.na(status)) %>%
   #mutate(pct = scales::percent(agg$n / sum(agg$n), accuracy = .1, trim = FALSE))
@@ -182,6 +183,7 @@ df %>% group_by(disruption = !is.na(status)) %>%
 ```{r}
 #| label: fig-shutdown-timeline
 #| fig-cap: " Timeline of Green Line Union Square Branch Disruptions since Opening"
+#| echo: false
 
 shutdown_data %>% 
   mutate_at(vars(startDate,endDate), ~as.character(.)) %>%
