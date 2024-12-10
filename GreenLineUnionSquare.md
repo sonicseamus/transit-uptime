@@ -201,20 +201,21 @@ process_file <- function(service_date, file_url) {
     # Read the parquet file into a tibble
     df <- arrow::read_parquet(file_url)
     
-    # Summarize by counting parent_station and direction_id (which is logical)
+    # Summarize by counting parent_station and direction_id, add service_date
     summary <- df |>
       count(parent_station, direction_id) |>
-      mutate(service_date = service_date)  # Add the current service_date to the summary
+      mutate(service_date = service_date)
     
-    return(summary)  # Return the summary for this file
+    return(summary)
     
   }, error = function(e) {
-    # Handle errors (e.g., if the parquet file can't be read)
     message("Error processing ", file_url, ": ", e$message)
-    return(NULL)  # Return NULL if there's an error
+    return(NULL)
   })
 }
+```
 
+``` r
 # Measure the execution time for the entire process
 # should take on the order of 5 minutes
 # can uncomment progress message in function definition if desired 
@@ -230,7 +231,7 @@ execution_time <- system.time({
 print(paste("Total execution time:", execution_time["elapsed"], "seconds"))
 ```
 
-    [1] "Total execution time: 387.302 seconds"
+    [1] "Total execution time: 267.569 seconds"
 
 ``` r
 tail(lamp_stations_summary)
