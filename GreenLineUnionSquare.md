@@ -1,6 +1,6 @@
 # GLX Union Square Branch
 Seamus Joyce-Johnson
-2024-12-09
+2024-12-10
 
 # Introduction
 
@@ -155,36 +155,130 @@ pct_uptime_incl_partial = sum(is.na(df_no_future$status) |
 ```
 
 Including both total and partial shutdowns, the Union Square branch’s
-uptime has been 83.9% since opening. If only total shutdowns are
-considered, the uptime is 92.2%.
+uptime has been 83.8% since opening. If only total shutdowns are
+considered, the uptime is 92.1%.
 
 # Shutdown Detection
 
 Can we use MBTA historical trip data to detect shutdowns, without having
 to input them manually?
 
+The T has moved to [LAMP](https://performancedata.mbta.com/) for storing
+performance data in a more developer-friendly format. By summarizing the
+number of trips per day at each rapid transit station, we can detect
+shutdowns by extracting days with significantly fewer trips than usual.
+
+Using `purrr::map`, this took 10 minutes on my laptop for ~ 5 years of
+data. `purrr:pmap_dfr` (parallel) got it down to 5 minutes.
+
+This method could be faster if we could use `arrow::open_dataset()` to
+read the data as a queryable table, but we can’t use this function
+without access to the LAMP performance data root directory.
+
 ``` r
-# WORK IN PROGRESS
-events <- read.csv("/Users/seamus/Downloads/Events_2023/2023-06_LREvents.csv") # using June as test data
-
-# direction 1 is northbound, 0 is southbound
-
-# use D branch 
-lech_arr <- events[(events$stop_id == "70500" | events$stop_id == "70501" | events$stop_id == "70502")
-                   & events$event_type == "ARR"
-                   & events$route_id == "Green-D"
-                   & events$direction_id == 0 # southbound
-                   ,]
-table(lech_arr$service_date)
-
-# detect shutdowns
-dates_month <- data.frame(date = (seq(as.Date("2023-06-01"),as.Date("2023-06-30"),"days")))
-tripsPerDay <- as.data.frame(table(lech_arr$service_date)) %>%
-  mutate(date = as.Date(Var1)) %>%
-  complete(date = dates_month$date) %>%
-  select(-Var1) %>%
-  rename(trips = Freq) %>%
-  replace(is.na(.),0)
-
-dates_shut_down_month <- filter(tripsPerDay,trips<10)
+lamp_index <- read_csv("https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/index.csv")
 ```
+
+    Rows: 1914 Columns: 4
+    ── Column specification ────────────────────────────────────────────────────────
+    Delimiter: ","
+    chr  (1): file_url
+    dbl  (1): size_bytes
+    dttm (1): last_modified
+    date (1): service_date
+
+    ℹ Use `spec()` to retrieve the full column specification for this data.
+    ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+``` r
+# Function to process each row of lamp_index
+process_file <- function(service_date, file_url) {
+  # Print the current progress (service date being processed)
+  # message("Processing service date: ", service_date)
+  
+  # Try to read and process the parquet file
+  tryCatch({
+    # Read the parquet file into a tibble
+    df <- arrow::read_parquet(file_url)
+    
+    # Summarize by counting parent_station and direction_id (which is logical)
+    summary <- df |>
+      count(parent_station, direction_id) |>
+      mutate(service_date = service_date)  # Add the current service_date to the summary
+    
+    return(summary)  # Return the summary for this file
+    
+  }, error = function(e) {
+    # Handle errors (e.g., if the parquet file can't be read)
+    message("Error processing ", file_url, ": ", e$message)
+    return(NULL)  # Return NULL if there's an error
+  })
+}
+
+# Measure the execution time for the entire process
+# should take on the order of 5 minutes
+# can uncomment progress message in function definition if desired 
+execution_time <- system.time({
+  lamp_stations_summary <- lamp_index |>
+    select(service_date, file_url) |> # only pass necessary columns
+    pmap_dfr(process_file) |> # execute summarization of LAMP data (BIG)
+    # create entries for days with 0 service
+    complete(service_date, parent_station, direction_id, fill = list(n = 0))
+})
+
+# Print the df and total execution time
+print(paste("Total execution time:", execution_time["elapsed"], "seconds"))
+```
+
+    [1] "Total execution time: 387.302 seconds"
+
+``` r
+tail(lamp_stations_summary)
+```
+
+    # A tibble: 6 × 4
+      service_date parent_station  direction_id     n
+      <date>       <chr>           <lgl>        <int>
+    1 2024-12-10   place-wrnst     FALSE           49
+    2 2024-12-10   place-wrnst     TRUE            57
+    3 2024-12-10   Union Square-01 FALSE            0
+    4 2024-12-10   Union Square-01 TRUE             0
+    5 2024-12-10   Union Square-02 FALSE            0
+    6 2024-12-10   Union Square-02 TRUE             0
+
+``` r
+## appears to be somewhat messy, with changing parent_station and stop_id names
+## there should be 125 non-Silver Line MBTA Rapid Transit stations
+## based on https://www.mass.gov/info-details/massgis-data-mbta-rapid-transit
+## TODO: clean up
+```
+
+``` r
+# Union Square example
+# note have to handle union square only counts in one direction as a terminal
+usq_shutdown_dates <- lamp_stations_summary |>
+  group_by(service_date, parent_station) |>
+  summarise(n = sum(n)) |>
+  filter(parent_station == "place-unsqu" & n < 10) %>%
+  select(service_date, n) |>
+  distinct() |>
+  filter(service_date >= as.Date("2022-03-21")) # only dates after opening
+```
+
+    `summarise()` has grouped output by 'service_date'. You can override using the
+    `.groups` argument.
+
+``` r
+tail(usq_shutdown_dates)
+```
+
+    # A tibble: 6 × 2
+    # Groups:   service_date [6]
+      service_date     n
+      <date>       <int>
+    1 2024-11-17       0
+    2 2024-12-06       0
+    3 2024-12-07       0
+    4 2024-12-08       0
+    5 2024-12-09       0
+    6 2024-12-10       0

@@ -23,6 +23,7 @@ library(tidyverse)
 library(janitor) # for round_half_up
 library(vistime) # for timeline visualization
 library(scales)  # for date axis scaling
+library(arrow)   # for reading MBTA LAMP parquet files
 
 future_buffer <- 60 # days extending into the future from the current date
 
@@ -227,32 +228,85 @@ the uptime is `r round_half_up(pct_uptime_incl_partial * 100, 1)`%.
 Can we use MBTA historical trip data to detect shutdowns,
 without having to input them manually?
 
+The T has moved to [LAMP](https://performancedata.mbta.com/) for
+storing performance data in a more developer-friendly format.
+By summarizing the number of trips per day at each rapid transit station,
+we can detect shutdowns by extracting days with
+significantly fewer trips than usual.
+
+Using `purrr::map`, this took 10 minutes on my laptop for ~ 5 years of data.
+`purrr:pmap_dfr` (parallel) got it down to 5 minutes.
+
+This method could be faster if we could use `arrow::open_dataset()`
+to read the data as a queryable table, but we can't use this function
+without access to the LAMP performance data root directory.
+
 ```{r}
-#| label: shutdown-detection
-#| eval: false
+#| label: shutdown-detection-lamp
+#| cache: true
+#| cache.extra: Sys.Date() # invalidate cache if date changes
 
-# WORK IN PROGRESS
-events <- read.csv("/Users/seamus/Downloads/Events_2023/2023-06_LREvents.csv") # using June as test data
+lamp_index <- read_csv("https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/index.csv")
 
-# direction 1 is northbound, 0 is southbound
+# Function to process each row of lamp_index
+process_file <- function(service_date, file_url) {
+  # Print the current progress (service date being processed)
+  # message("Processing service date: ", service_date)
+  
+  # Try to read and process the parquet file
+  tryCatch({
+    # Read the parquet file into a tibble
+    df <- arrow::read_parquet(file_url)
+    
+    # Summarize by counting parent_station and direction_id (which is logical)
+    summary <- df |>
+      count(parent_station, direction_id) |>
+      mutate(service_date = service_date)  # Add the current service_date to the summary
+    
+    return(summary)  # Return the summary for this file
+    
+  }, error = function(e) {
+    # Handle errors (e.g., if the parquet file can't be read)
+    message("Error processing ", file_url, ": ", e$message)
+    return(NULL)  # Return NULL if there's an error
+  })
+}
 
-# use D branch 
-lech_arr <- events[(events$stop_id == "70500" | events$stop_id == "70501" | events$stop_id == "70502")
-                   & events$event_type == "ARR"
-                   & events$route_id == "Green-D"
-                   & events$direction_id == 0 # southbound
-                   ,]
-table(lech_arr$service_date)
+# Measure the execution time for the entire process
+# should take on the order of 5 minutes
+# can uncomment progress message in function definition if desired 
+execution_time <- system.time({
+  lamp_stations_summary <- lamp_index |>
+    select(service_date, file_url) |> # only pass necessary columns
+    pmap_dfr(process_file) |> # execute summarization of LAMP data (BIG)
+    # create entries for days with 0 service
+    complete(service_date, parent_station, direction_id, fill = list(n = 0))
+})
 
-# detect shutdowns
-dates_month <- data.frame(date = (seq(as.Date("2023-06-01"),as.Date("2023-06-30"),"days")))
-tripsPerDay <- as.data.frame(table(lech_arr$service_date)) %>%
-  mutate(date = as.Date(Var1)) %>%
-  complete(date = dates_month$date) %>%
-  select(-Var1) %>%
-  rename(trips = Freq) %>%
-  replace(is.na(.),0)
+# Print the df and total execution time
+print(paste("Total execution time:", execution_time["elapsed"], "seconds"))
 
-dates_shut_down_month <- filter(tripsPerDay,trips<10)
+tail(lamp_stations_summary)
+
+## appears to be somewhat messy, with changing parent_station and stop_id names
+## there should be 125 non-Silver Line MBTA Rapid Transit stations
+## based on https://www.mass.gov/info-details/massgis-data-mbta-rapid-transit
+## TODO: clean up
+```
+
+```{r}
+#| label: shutdown-detection-lamp-usq-example
+
+# Union Square example
+# note have to handle union square only counts in one direction as a terminal
+usq_shutdown_dates <- lamp_stations_summary |>
+  group_by(service_date, parent_station) |>
+  summarise(n = sum(n)) |>
+  filter(parent_station == "place-unsqu" & n < 10) %>%
+  select(service_date, n) |>
+  distinct() |>
+  filter(service_date >= as.Date("2022-03-21")) # only dates after opening
+
+tail(usq_shutdown_dates)
 ```
 
