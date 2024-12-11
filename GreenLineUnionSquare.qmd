@@ -274,6 +274,7 @@ process_file <- function(service_date, file_url) {
 
 ```{r}
 #| label: execute-lamp-summary
+#| eval: false
 #| cache: true
 #| cache.extra: Sys.Date() # invalidate cache if date changes
 #| cache-comments: false
@@ -299,6 +300,91 @@ tail(lamp_stations_summary)
 ## based on https://www.mass.gov/info-details/massgis-data-mbta-rapid-transit
 ## TODO: clean up
 ```
+
+Here's an attempt to manually construct an Arrow dataset.
+H/t https://github.com/apache/arrow/issues/44992#issuecomment-2532636356.
+
+```{r}
+#| label: lamp-arrow-dataset
+
+# First we need to get the list of files
+file_url_prefix <- "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/"
+index_csv_url <- paste0(file_url_prefix, "index.csv")
+
+index_tbl <- read_csv_arrow(index_csv_url) 
+index_tbl$relpath <- str_remove_all(index_tbl$file_url, file_url_prefix)
+
+# Then, to create a Dataset manually, we need to create a Filesystem first
+# Since we don't support HTTP filesystems but this dataset is backed by S3-like
+# storage, we can create a custom S3 Filesystem and still use our S3 driver
+fs <- S3FileSystem$create(
+  anonymous = TRUE, 
+  endpoint_override = "https://performancedata.mbta.com"
+)
+# cd into the right path
+ds_fs <- fs$cd("lamp/subway-on-time-performance-v1")
+
+dsf <- FileSystemDatasetFactory$create(
+  filesystem = ds_fs, 
+  paths = index_tbl$relpath, 
+  format = FileFormat$create("parquet"),
+)
+ds <- dsf$Finish()
+
+# Now we can use the Dataset as normal
+ds |> 
+  head() |> 
+  collect()
+
+execution_time_ds <- system.time({
+  lamp_stations_summary <- ds |>
+    count(parent_station, direction_id, service_date) |>
+    collect() |>
+    mutate(service_date = as.Date(as.character(service_date), "%Y%m%d")) |>
+    # mutate(parent_station = case_when(parent_station %in% c(70138)))
+    complete(service_date, parent_station, direction_id, fill = list(n = 0))
+})
+
+# Print the total execution time
+print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
+
+# note missing stations:
+## 70138 and 70139 were old Pleasant St station on B branch,
+## closed at end of service on 2021-02-26
+## 70207 and 70208 were old Science Park/West End Green Line
+## 70209 was old Lechmere (exit only)
+## 71199 is Park St Green Line (drop off only)
+# also, weirdly, there's no Union Square data until 2022-09-28
+# TODO: clean data to reflect these (and station opening/closing dates)
+```
+
+```{r}
+#| label: shutdown-detection
+
+# plot some stations on the Orange Line
+library(ggridges)
+lamp_stations_summary |>
+  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+           direction_id == T) |>
+  ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
+    stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
+                        quantile_lines = T, calc_ecdf = T) +
+    scale_fill_viridis_d(name = "Deciles")
+
+lamp_stations_summary_shutdown <- lamp_stations_summary |>
+  group_by(parent_station, direction_id) |>
+  mutate(closed = n < quantile(n, 0.01, na.rm = TRUE)) |>
+  ungroup()
+
+# TODO: determine appropriate percentile cutoff
+# probably need to group data by stop_id to account for shutdowns of a
+# single line at a transfer station
+# also should probably add a weekend flag to get a tighter distribution
+# for each stop
+# mutate(weekend = wday(service_date) %in% c(1, 7))
+```
+
+
 
 ```{r}
 #| label: shutdown-detection-lamp-usq-example

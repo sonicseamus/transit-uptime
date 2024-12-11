@@ -229,29 +229,121 @@ execution_time <- system.time({
 
 # Print the df and total execution time
 print(paste("Total execution time:", execution_time["elapsed"], "seconds"))
-```
 
-    [1] "Total execution time: 267.569 seconds"
-
-``` r
 tail(lamp_stations_summary)
-```
 
-    # A tibble: 6 × 4
-      service_date parent_station  direction_id     n
-      <date>       <chr>           <lgl>        <int>
-    1 2024-12-10   place-wrnst     FALSE           49
-    2 2024-12-10   place-wrnst     TRUE            57
-    3 2024-12-10   Union Square-01 FALSE            0
-    4 2024-12-10   Union Square-01 TRUE             0
-    5 2024-12-10   Union Square-02 FALSE            0
-    6 2024-12-10   Union Square-02 TRUE             0
-
-``` r
 ## appears to be somewhat messy, with changing parent_station and stop_id names
 ## there should be 125 non-Silver Line MBTA Rapid Transit stations
 ## based on https://www.mass.gov/info-details/massgis-data-mbta-rapid-transit
 ## TODO: clean up
+```
+
+Here’s an attempt to manually construct an Arrow dataset. H/t
+https://github.com/apache/arrow/issues/44992#issuecomment-2532636356.
+
+``` r
+# First we need to get the list of files
+file_url_prefix <- "https://performancedata.mbta.com/lamp/subway-on-time-performance-v1/"
+index_csv_url <- paste0(file_url_prefix, "index.csv")
+
+index_tbl <- read_csv_arrow(index_csv_url) 
+index_tbl$relpath <- str_remove_all(index_tbl$file_url, file_url_prefix)
+
+# Then, to create a Dataset manually, we need to create a Filesystem first
+# Since we don't support HTTP filesystems but this dataset is backed by S3-like
+# storage, we can create a custom S3 Filesystem and still use our S3 driver
+fs <- S3FileSystem$create(
+  anonymous = TRUE, 
+  endpoint_override = "https://performancedata.mbta.com"
+)
+# cd into the right path
+ds_fs <- fs$cd("lamp/subway-on-time-performance-v1")
+
+dsf <- FileSystemDatasetFactory$create(
+  filesystem = ds_fs, 
+  paths = index_tbl$relpath, 
+  format = FileFormat$create("parquet"),
+)
+ds <- dsf$Finish()
+
+# Now we can use the Dataset as normal
+ds |> 
+  head() |> 
+  collect()
+```
+
+    # A tibble: 6 × 27
+      stop_sequence stop_id      parent_station move_timestamp stop_timestamp
+              <int> <chr>        <chr>                   <int>          <int>
+    1             1 Oak Grove-01 place-ogmnl                NA     1568643555
+    2             1 70210        place-lech         1568643599             NA
+    3           120 70095        place-jfk                  NA     1568643680
+    4           650 70209        place-lech                 NA     1568643698
+    5             1 Alewife-02   place-alfcl                NA     1568643730
+    6           310 70107        place-lake                 NA     1568643731
+    # ℹ 22 more variables: travel_time_seconds <int>, dwell_time_seconds <int>,
+    #   headway_trunk_seconds <int>, headway_branch_seconds <int>,
+    #   service_date <int>, route_id <chr>, direction_id <lgl>, start_time <int>,
+    #   vehicle_id <chr>, branch_route_id <chr>, trunk_route_id <chr>,
+    #   stop_count <int>, trip_id <chr>, vehicle_label <chr>,
+    #   vehicle_consist <chr>, direction <chr>, direction_destination <chr>,
+    #   scheduled_arrival_time <int>, scheduled_departure_time <int>, …
+
+``` r
+execution_time_ds <- system.time({
+  lamp_stations_summary <- ds |>
+    count(parent_station, direction_id, service_date) |>
+    collect() |>
+    mutate(service_date = as.Date(as.character(service_date), "%Y%m%d")) |>
+    # mutate(parent_station = case_when(parent_station %in% c(70138)))
+    complete(service_date, parent_station, direction_id, fill = list(n = 0))
+})
+
+# Print the total execution time
+print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
+```
+
+    [1] "Total execution time: 36.752 seconds"
+
+``` r
+# note missing stations:
+## 70138 and 70139 were old Pleasant St station on B branch,
+## closed at end of service on 2021-02-26
+## 70207 and 70208 were old Science Park/West End Green Line
+## 70209 was old Lechmere (exit only)
+## 71199 is Park St Green Line (drop off only)
+# also, weirdly, there's no Union Square data until 2022-09-28
+# TODO: clean data to reflect these (and station opening/closing dates)
+```
+
+``` r
+# plot some stations on the Orange Line
+library(ggridges)
+lamp_stations_summary |>
+  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+           direction_id == T) |>
+  ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
+    stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
+                        quantile_lines = T, calc_ecdf = T) +
+    scale_fill_viridis_d(name = "Deciles")
+```
+
+    Picking joint bandwidth of 6.53
+
+![](GreenLineUnionSquare_files/figure-commonmark/shutdown-detection-1.png)
+
+``` r
+lamp_stations_summary_shutdown <- lamp_stations_summary |>
+  group_by(parent_station, direction_id) |>
+  mutate(closed = n < quantile(n, 0.01, na.rm = TRUE)) |>
+  ungroup()
+
+# TODO: determine appropriate percentile cutoff
+# probably need to group data by stop_id to account for shutdowns of a
+# single line at a transfer station
+# also should probably add a weekend flag to get a tighter distribution
+# for each stop
+# mutate(weekend = wday(service_date) %in% c(1, 7))
 ```
 
 ``` r
