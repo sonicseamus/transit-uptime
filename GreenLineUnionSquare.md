@@ -303,7 +303,7 @@ execution_time_ds <- system.time({
 print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
 ```
 
-    [1] "Total execution time: 83.134 seconds"
+    [1] "Total execution time: 41.004 seconds"
 
 ``` r
 # note missing stations:
@@ -315,6 +315,10 @@ print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
 # also, weirdly, there's no Union Square data until 2022-09-28
 # TODO: clean data to reflect these (and station opening/closing dates)
 ```
+
+We can visualize the distribution of trips per day at some stations to
+get a sense of what kind of cutoff we might need for declaring that a
+given station was shut down.
 
 ``` r
 # plot some stations on the Orange Line
@@ -346,10 +350,12 @@ lamp_stations_summary_shutdown <- lamp_stations_summary |>
 # mutate(weekend = wday(service_date) %in% c(1, 7))
 ```
 
+We may get tighter distributions if we isolate weekdays from weekends.
+
 ``` r
 lamp_stations_summary |>
   mutate(weekend = wday(service_date) %in% c(1, 7)) |>
-  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+  filter(parent_station %in% c("place-rugg","place-bbsta","place-state") &
            direction_id == T) |>
   ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
     stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
@@ -358,9 +364,9 @@ lamp_stations_summary |>
   facet_wrap(vars(weekend), labeller = "label_both")
 ```
 
-    Picking joint bandwidth of 5.87
+    Picking joint bandwidth of 7.33
 
-    Picking joint bandwidth of 4.51
+    Picking joint bandwidth of 4.97
 
 <img
 src="GreenLineUnionSquare_files/figure-commonmark/fig-orange-distributions-weekend-1.png"

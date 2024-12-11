@@ -358,6 +358,10 @@ print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
 # TODO: clean data to reflect these (and station opening/closing dates)
 ```
 
+We can visualize the distribution of trips per day at some stations
+to get a sense of what kind of cutoff we might need for
+declaring that a given station was shut down.
+
 ```{r}
 #| label: shutdown-detection
 
@@ -384,13 +388,14 @@ lamp_stations_summary_shutdown <- lamp_stations_summary |>
 # mutate(weekend = wday(service_date) %in% c(1, 7))
 ```
 
+We may get tighter distributions if we isolate weekdays from weekends.
+
 ```{r}
 #| label: fig-orange-distributions-weekend
 
-
 lamp_stations_summary |>
   mutate(weekend = wday(service_date) %in% c(1, 7)) |>
-  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+  filter(parent_station %in% c("place-rugg","place-bbsta","place-state") &
            direction_id == T) |>
   ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
     stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
