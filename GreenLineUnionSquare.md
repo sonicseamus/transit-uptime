@@ -303,7 +303,7 @@ execution_time_ds <- system.time({
 print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
 ```
 
-    [1] "Total execution time: 36.752 seconds"
+    [1] "Total execution time: 83.134 seconds"
 
 ``` r
 # note missing stations:
@@ -320,7 +320,7 @@ print(paste("Total execution time:", execution_time_ds["elapsed"], "seconds"))
 # plot some stations on the Orange Line
 library(ggridges)
 lamp_stations_summary |>
-  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+  filter(parent_station %in% c("place-rugg","place-bbsta","place-state") &
            direction_id == T) |>
   ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
     stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
@@ -328,7 +328,7 @@ lamp_stations_summary |>
     scale_fill_viridis_d(name = "Deciles")
 ```
 
-    Picking joint bandwidth of 6.53
+    Picking joint bandwidth of 8.45
 
 ![](GreenLineUnionSquare_files/figure-commonmark/shutdown-detection-1.png)
 
@@ -345,6 +345,26 @@ lamp_stations_summary_shutdown <- lamp_stations_summary |>
 # for each stop
 # mutate(weekend = wday(service_date) %in% c(1, 7))
 ```
+
+``` r
+lamp_stations_summary |>
+  mutate(weekend = wday(service_date) %in% c(1, 7)) |>
+  filter(parent_station %in% c("place-rugg","place-masta","place-bbsta") &
+           direction_id == T) |>
+  ggplot(aes(x = n, y = parent_station, fill = factor(after_stat(quantile)))) +
+    stat_density_ridges(geom = "density_ridges_gradient", quantiles = 10,
+                        quantile_lines = T, calc_ecdf = T) +
+    scale_fill_viridis_d(name = "Deciles") +
+  facet_wrap(vars(weekend), labeller = "label_both")
+```
+
+    Picking joint bandwidth of 5.87
+
+    Picking joint bandwidth of 4.51
+
+<img
+src="GreenLineUnionSquare_files/figure-commonmark/fig-orange-distributions-weekend-1.png"
+id="fig-orange-distributions-weekend" />
 
 ``` r
 # Union Square example
